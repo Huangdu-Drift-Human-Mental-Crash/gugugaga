@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare WXT
+        run: pnpm prepare:wxt
+
       - name: Run tests
         run: pnpm test
 

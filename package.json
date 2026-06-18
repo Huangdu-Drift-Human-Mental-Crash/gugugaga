@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "wxt",
     "dev:chrome": "wxt -b chrome",
+    "prepare:wxt": "wxt prepare",
     "build": "wxt build -b chrome",
     "zip": "wxt zip -b chrome",
     "compile": "tsc --noEmit",
