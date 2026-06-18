@@ -56,7 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          "${{ steps.setup-chrome.outputs.chrome-path }}" --pack-extension="$PWD/.output/chrome-mv3"
+          "${{ steps.setup-chrome.outputs.chrome-path }}" --no-sandbox --pack-extension="$PWD/.output/chrome-mv3"
           mv .output/chrome-mv3.crx artifacts/gugugaga.crx
           mv .output/chrome-mv3.pem artifacts/gugugaga.pem
           cp .output/gugugaga-*.zip artifacts/ 2>/dev/null || cp .output/*.zip artifacts/
