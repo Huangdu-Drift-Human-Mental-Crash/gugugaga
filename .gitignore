@@ -1,0 +1,13 @@
+node_modules/
+.wxt/
+.output/
+coverage/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+
+# Local reverse-engineering materials. Kept out of the public product repo.
+immersive-translate-extension-*_0/
+immersive-translate-reverse-notes/

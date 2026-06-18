@@ -1,0 +1,68 @@
+name: Build extension
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Test and package Chrome extension
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Typecheck
+        run: pnpm compile
+
+      - name: Build unpacked extension
+        run: pnpm build
+
+      - name: Build zip package
+        run: pnpm zip
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Build CRX package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          "${{ steps.setup-chrome.outputs.chrome-path }}" --pack-extension="$PWD/.output/chrome-mv3"
+          mv .output/chrome-mv3.crx artifacts/gugugaga.crx
+          mv .output/chrome-mv3.pem artifacts/gugugaga.pem
+          cp .output/gugugaga-*.zip artifacts/ 2>/dev/null || cp .output/*.zip artifacts/
+          cp -R .output/chrome-mv3 artifacts/gugugaga-chrome-mv3
+
+      - name: Upload extension artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gugugaga-chrome-mv3
+          path: |
+            artifacts/
+          if-no-files-found: error
