@@ -2,6 +2,7 @@ import type { TranslationProviderDescriptor } from "../../shared/types";
 import { providerDescriptors, visibleProviderDescriptors } from "../../shared/defaults";
 import { translateChromeTranslator } from "./chromeTranslator";
 import { translateDeepLApi, translateGoogleCloudApi, translateMicrosoftApi } from "./official";
+import { translateAnthropicNative, translateGeminiNative } from "./llmNative";
 import { translateOpenAICompatible } from "./openaiCompatible";
 import { translateBingWeb, translateDeepLWebExperimental, translateGoogleWeb } from "./webAdapters";
 import type { ProviderTranslator } from "./types";
@@ -9,6 +10,8 @@ import { ProviderError } from "./types";
 
 const translators: Record<string, ProviderTranslator> = {
   "openai-compatible": translateOpenAICompatible,
+  "gemini-native": translateGeminiNative,
+  "anthropic-native": translateAnthropicNative,
   "deepl-api": translateDeepLApi,
   "microsoft-translator": translateMicrosoftApi,
   "google-cloud-translate": translateGoogleCloudApi,

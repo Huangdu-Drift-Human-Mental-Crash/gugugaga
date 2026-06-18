@@ -19,6 +19,7 @@ does not reuse their source code, brand, icons, proprietary rules, or services.
 - YouTube subtitle translation with a dedicated subtitle engine and overlay.
 - OpenAI-compatible provider support for OpenAI, DeepSeek, OpenRouter,
   SiliconFlow, Ollama, LM Studio, and compatible local endpoints.
+- Native LLM providers for Gemini and Anthropic Claude.
 - Official provider adapters for DeepL, Microsoft Translator, and Google Cloud
   Translate.
 - Experimental web adapters for Google Web, Bing Web, and DeepL Web.
@@ -90,6 +91,18 @@ http://localhost:1234/v1
 
 Experimental web adapters are intentionally best-effort. Web endpoints can
 change without notice, so each adapter can be disabled independently.
+
+Native LLM defaults:
+
+```text
+Gemini Native
+baseUrl: https://generativelanguage.googleapis.com/v1beta
+model: gemini-3.5-flash
+
+Anthropic Native
+baseUrl: https://api.anthropic.com/v1
+model: claude-sonnet-4-5
+```
 
 ## Current Scope
 

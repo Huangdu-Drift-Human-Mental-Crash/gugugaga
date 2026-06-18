@@ -15,11 +15,11 @@ describe("hash helpers", () => {
         textHash: "abc",
         targetLang: "zh-CN",
         providerId: "openai-compatible",
+        providerScope: "scope",
         model: "gpt",
         expertId: "general",
         contextVersion: "ctx",
       }),
-    ).toBe("br-cache-v1:abc:zh-CN:openai-compatible:gpt:general:ctx");
+    ).toBe("br-cache-v1:abc:zh-CN:openai-compatible:scope:gpt:general:ctx");
   });
 });
-

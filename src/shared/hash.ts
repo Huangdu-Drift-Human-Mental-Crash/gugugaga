@@ -19,6 +19,7 @@ export function cacheKey(parts: {
   textHash: string;
   targetLang: string;
   providerId: string;
+  providerScope?: string;
   model: string;
   expertId: string;
   contextVersion: string;
@@ -28,9 +29,9 @@ export function cacheKey(parts: {
     parts.textHash,
     parts.targetLang,
     parts.providerId,
+    parts.providerScope || "scope0",
     parts.model || "default",
     parts.expertId || "none",
     parts.contextVersion || "ctx0",
   ].join(":");
 }
-

@@ -5,12 +5,14 @@ import { getCachedTranslation, setCachedTranslation, cachedResult } from "./cach
 import { getProviderDescriptor, getProviderTranslator } from "./providers/registry";
 import { failedProviderResult } from "./providers/types";
 import { summarizeContextOpenAICompatible } from "./providers/openaiCompatible";
+import { summarizeContextAnthropicNative, summarizeContextGeminiNative } from "./providers/llmNative";
 
 function itemCacheKey(request: TranslateBatchRequest, textHash: string): string {
   return cacheKey({
     textHash,
     targetLang: request.targetLang,
     providerId: request.providerId,
+    providerScope: stableHash(request.providerConfig.baseUrl || request.providerId),
     model: request.providerConfig.model,
     expertId: request.expertProfile.id,
     contextVersion: stableHash(contextVersion(request.contextPack)),
@@ -22,8 +24,15 @@ async function maybeEnhanceContext(request: TranslateBatchRequest): Promise<Tran
   if (!request.contextPreflight || !descriptor?.capabilities.contextPreflight || !request.contextPack.rawTextSnippet) {
     return request;
   }
-  if (request.providerId !== "openai-compatible") return request;
-  const enhanced = await summarizeContextOpenAICompatible(request);
+  const enhanced =
+    request.providerId === "openai-compatible"
+      ? await summarizeContextOpenAICompatible(request)
+      : request.providerId === "gemini-native"
+        ? await summarizeContextGeminiNative(request)
+        : request.providerId === "anthropic-native"
+          ? await summarizeContextAnthropicNative(request)
+          : request.contextPack;
+  if (enhanced === request.contextPack) return request;
   return { ...request, contextPack: enhanced };
 }
 
