@@ -1,5 +1,13 @@
+import { buildConsistencyPlanPrompt, parseConsistencyPlan } from "../../shared/consistency";
 import { buildTranslationPrompt, parseJsonTranslations } from "../../shared/prompt";
-import type { ContextPack, TranslateBatchRequest, TranslateBatchResult } from "../../shared/types";
+import type {
+  ConsistencyPlan,
+  ConsistencyPlanRequest,
+  ContextPack,
+  ProviderConfig,
+  TranslateBatchRequest,
+  TranslateBatchResult,
+} from "../../shared/types";
 import { brokerJson } from "../requestBroker";
 import { ProviderError } from "./types";
 
@@ -21,8 +29,9 @@ interface AnthropicResponse {
 }
 
 type NativeProvider = "gemini-native" | "anthropic-native";
+type NativeProviderRequest = { providerConfig: ProviderConfig };
 
-function requireApiKey(request: TranslateBatchRequest, label: string): string {
+function requireApiKey(request: NativeProviderRequest, label: string): string {
   const key = request.providerConfig.apiKey.trim();
   if (!key) throw new ProviderError(`${label} requires an API key.`);
   return key;
@@ -102,7 +111,7 @@ function extractGeminiText(data: GeminiResponse): string {
   return data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
 }
 
-async function callGemini(request: TranslateBatchRequest, prompt: { system: string; user: string }): Promise<string> {
+async function callGemini(request: NativeProviderRequest, prompt: { system: string; user: string }): Promise<string> {
   const key = requireApiKey(request, "Gemini Native");
   const baseUrl = normalizeBaseUrl(request.providerConfig.baseUrl, "https://generativelanguage.googleapis.com/v1beta");
   const modelPath = geminiModelPath(request.providerConfig.model);
@@ -140,7 +149,7 @@ function extractAnthropicText(data: AnthropicResponse): string {
   return data.content?.filter((item) => item.type === "text").map((item) => item.text ?? "").join("").trim() ?? "";
 }
 
-async function callAnthropic(request: TranslateBatchRequest, prompt: { system: string; user: string }): Promise<string> {
+async function callAnthropic(request: NativeProviderRequest, prompt: { system: string; user: string }): Promise<string> {
   const key = requireApiKey(request, "Anthropic Native");
   const baseUrl = normalizeBaseUrl(request.providerConfig.baseUrl, "https://api.anthropic.com/v1");
   const model = request.providerConfig.model || "claude-sonnet-4-5";
@@ -170,7 +179,7 @@ async function callAnthropic(request: TranslateBatchRequest, prompt: { system: s
 
 async function callNativeProvider(
   provider: NativeProvider,
-  request: TranslateBatchRequest,
+  request: NativeProviderRequest,
   prompt: { system: string; user: string },
 ): Promise<string> {
   return provider === "gemini-native" ? callGemini(request, prompt) : callAnthropic(request, prompt);
@@ -184,6 +193,8 @@ export async function translateGeminiNative(request: TranslateBatchRequest): Pro
     blocks: request.blocks,
     contextPack: request.contextPack,
     expertProfile: request.expertProfile,
+    consistencyPlan: request.consistencyPlan,
+    localContext: request.localContext,
   });
   const content = await callNativeProvider("gemini-native", request, prompt);
   return resultFromJsonText(request, started, content);
@@ -197,6 +208,8 @@ export async function translateAnthropicNative(request: TranslateBatchRequest): 
     blocks: request.blocks,
     contextPack: request.contextPack,
     expertProfile: request.expertProfile,
+    consistencyPlan: request.consistencyPlan,
+    localContext: request.localContext,
   });
   const content = await callNativeProvider("anthropic-native", request, prompt);
   return resultFromJsonText(request, started, content);
@@ -210,4 +223,18 @@ export async function summarizeContextGeminiNative(request: TranslateBatchReques
 export async function summarizeContextAnthropicNative(request: TranslateBatchRequest): Promise<ContextPack> {
   const content = await callNativeProvider("anthropic-native", request, buildContextSummaryPrompt(request));
   return mergeContextSummary(request, content);
+}
+
+export async function buildConsistencyPlanGeminiNative(
+  request: ConsistencyPlanRequest,
+): Promise<ConsistencyPlan> {
+  const content = await callNativeProvider("gemini-native", request, buildConsistencyPlanPrompt(request));
+  return parseConsistencyPlan(content);
+}
+
+export async function buildConsistencyPlanAnthropicNative(
+  request: ConsistencyPlanRequest,
+): Promise<ConsistencyPlan> {
+  const content = await callNativeProvider("anthropic-native", request, buildConsistencyPlanPrompt(request));
+  return parseConsistencyPlan(content);
 }

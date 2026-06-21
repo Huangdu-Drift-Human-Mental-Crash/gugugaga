@@ -102,9 +102,15 @@ describe("translation rendering", () => {
     const block: ContentBlock = {
       ...blockFor(paragraph as HTMLElement),
       richText: {
-        source: "Go to __BRX_INLINE_0__ and press __BRX_INLINE_1__.",
+        source: "Go to __BRX_INLINE_0__Codex__BRX_INLINE_0_END__ and press __BRX_INLINE_1__.",
         placeholders: [
-          { token: "__BRX_INLINE_0__", tagName: "a", text: "Codex", attributes: { href: "https://example.com" } },
+          {
+            token: "__BRX_INLINE_0__",
+            closeToken: "__BRX_INLINE_0_END__",
+            tagName: "a",
+            text: "Codex",
+            attributes: { href: "https://example.com" },
+          },
           { token: "__BRX_INLINE_1__", tagName: "code", text: "Enter", attributes: {} },
         ],
       },
@@ -114,12 +120,20 @@ describe("translation rendering", () => {
       document,
       blocks: [block],
       displayMode: "dual",
-      results: [{ id: block.id, text: "请转到 __BRX_INLINE_0__ 并按 __BRX_INLINE_1__。", error: "", cached: false }],
+      results: [
+        {
+          id: block.id,
+          text: "请转到 __BRX_INLINE_0__代码助手__BRX_INLINE_0_END__ 并按 __BRX_INLINE_1__。",
+          error: "",
+          cached: false,
+        },
+      ],
     });
 
     const translation = document.querySelector(".brx-translation");
-    expect(translation).toHaveTextContent("请转到 Codex 并按 Enter。");
+    expect(translation).toHaveTextContent("请转到 代码助手 并按 Enter。");
     expect(translation?.querySelector("a")).toHaveAttribute("href", "https://example.com");
+    expect(translation?.querySelector("a")).toHaveTextContent("代码助手");
     expect(translation?.querySelector("code")).toHaveTextContent("Enter");
   });
 

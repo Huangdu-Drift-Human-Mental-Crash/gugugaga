@@ -1,4 +1,5 @@
 import { clearTranslationCache, clearTranslationCacheForTextHashes, getCacheStats } from "../src/background/cache";
+import { buildConsistencyPlan } from "../src/background/consistencyPlan";
 import { grantProviderPermission } from "../src/background/permissions";
 import { listProviderDescriptors } from "../src/background/providers/registry";
 import { translateBatchWithCache } from "../src/background/translationService";
@@ -62,6 +63,8 @@ async function handleMessage(message: RuntimeMessage): Promise<unknown> {
       return listProviderDescriptors();
     case "BR_GRANT_PROVIDER_PERMISSION":
       return { granted: await grantProviderPermission(message.providerConfig) };
+    case "BR_BUILD_CONSISTENCY_PLAN":
+      return buildConsistencyPlan(message.request);
     case "BR_TRANSLATE_BATCH":
       return translateBatchWithCache(message.request);
     case "BR_CLEAR_CACHE":

@@ -69,7 +69,9 @@ describe("extractPageBlocks", () => {
 
     const [block] = extractPageBlocks(document);
 
-    expect(block?.richText?.source).toBe("Go to __BRX_INLINE_0__ and read __BRX_INLINE_1__.");
+    expect(block?.richText?.source).toBe(
+      "Go to __BRX_INLINE_0__Codex__BRX_INLINE_0_END__ and read __BRX_INLINE_1__carefully__BRX_INLINE_1_END__.",
+    );
     expect(block?.richText?.placeholders[0]).toMatchObject({
       tagName: "a",
       text: "Codex",

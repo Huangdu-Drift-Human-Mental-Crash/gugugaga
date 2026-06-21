@@ -8,14 +8,18 @@ describe("rich text placeholders", () => {
 
     const payload = buildRichTextPayload(paragraph as HTMLElement);
 
-    expect(payload?.source).toBe("Go to __BRX_INLINE_0__ and use __BRX_INLINE_1__.");
-    const fragment = restoreRichTextFragment(document, "请转到 __BRX_INLINE_0__ 并使用 __BRX_INLINE_1__。", payload!);
+    expect(payload?.source).toBe("Go to __BRX_INLINE_0__Codex__BRX_INLINE_0_END__ and use __BRX_INLINE_1__CLI__BRX_INLINE_1_END__.");
+    const fragment = restoreRichTextFragment(
+      document,
+      "请查看 __BRX_INLINE_0__代码助手__BRX_INLINE_0_END__ 并使用 __BRX_INLINE_1__命令行__BRX_INLINE_1_END__。",
+      payload!,
+    );
     expect(fragment).toBeDefined();
     const host = document.createElement("div");
     host.append(fragment!);
     expect(host.querySelector("a")).toHaveAttribute("href", "https://example.com");
-    expect(host.querySelector("a")).toHaveTextContent("Codex");
-    expect(host.querySelector("strong")).toHaveTextContent("CLI");
+    expect(host.querySelector("a")).toHaveTextContent("代码助手");
+    expect(host.querySelector("strong")).toHaveTextContent("命令行");
   });
 
   it("returns undefined when placeholders are missing", () => {
@@ -23,5 +27,16 @@ describe("rich text placeholders", () => {
     const payload = buildRichTextPayload(document.querySelector("p") as HTMLElement);
 
     expect(restoreRichTextFragment(document, "仔细阅读。", payload!)).toBeUndefined();
+  });
+
+  it("keeps non-translatable inline elements as atomic placeholders", () => {
+    document.body.innerHTML = `<p>Press <code>Enter</code>.</p>`;
+    const payload = buildRichTextPayload(document.querySelector("p") as HTMLElement);
+
+    expect(payload?.source).toBe("Press __BRX_INLINE_0__.");
+    const fragment = restoreRichTextFragment(document, "按 __BRX_INLINE_0__。", payload!);
+    const host = document.createElement("div");
+    host.append(fragment!);
+    expect(host.querySelector("code")).toHaveTextContent("Enter");
   });
 });

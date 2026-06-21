@@ -1,5 +1,12 @@
+import { buildConsistencyPlanPrompt, parseConsistencyPlan } from "../../shared/consistency";
 import { buildTranslationPrompt, parseJsonTranslations } from "../../shared/prompt";
-import type { ContextPack, TranslateBatchRequest, TranslateBatchResult } from "../../shared/types";
+import type {
+  ConsistencyPlan,
+  ConsistencyPlanRequest,
+  ContextPack,
+  TranslateBatchRequest,
+  TranslateBatchResult,
+} from "../../shared/types";
 import { brokerJson } from "../requestBroker";
 import { ProviderError } from "./types";
 
@@ -42,6 +49,8 @@ export async function translateOpenAICompatible(request: TranslateBatchRequest):
     blocks: request.blocks,
     contextPack: request.contextPack,
     expertProfile: request.expertProfile,
+    consistencyPlan: request.consistencyPlan,
+    localContext: request.localContext,
   });
   const data = await brokerJson<ChatCompletionResponse>({
     profileId: "openai-compatible",
@@ -76,6 +85,35 @@ export async function translateOpenAICompatible(request: TranslateBatchRequest):
       cached: false,
     })),
   };
+}
+
+export async function buildConsistencyPlanOpenAICompatible(
+  request: ConsistencyPlanRequest,
+): Promise<ConsistencyPlan> {
+  const baseUrl = normalizeBaseUrl(request.providerConfig.baseUrl);
+  const model = request.providerConfig.model || "gpt-4o-mini";
+  const prompt = buildConsistencyPlanPrompt(request);
+  const data = await brokerJson<ChatCompletionResponse>({
+    profileId: "openai-compatible-consistency-plan",
+    url: `${baseUrl}/chat/completions`,
+    method: "POST",
+    timeoutMs: request.providerConfig.timeoutMs,
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(request.providerConfig.apiKey, baseUrl),
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      messages: [
+        { role: "system", content: prompt.system },
+        { role: "user", content: prompt.user },
+      ],
+    }),
+  });
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new ProviderError("OpenAI-compatible provider returned no consistency plan.");
+  return parseConsistencyPlan(content);
 }
 
 export async function summarizeContextOpenAICompatible(request: TranslateBatchRequest): Promise<ContextPack> {

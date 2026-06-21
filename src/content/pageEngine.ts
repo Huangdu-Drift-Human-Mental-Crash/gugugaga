@@ -147,13 +147,15 @@ export class PageEngine {
     }
   }
 
-  renderPending(blocks: ContentBlock[], displayMode: DisplayMode): number {
+  renderPending(blocks: ContentBlock[], displayMode: DisplayMode, pendingText?: string): number {
     this.setPageStatus("translating");
+    const pendingTextInput = pendingText ? { pendingText } : {};
     const rendered = renderPendingTranslations({
       document: this.document,
       blocks,
       displayMode,
-    }) + renderNavigationPendingTranslations({ document: this.document, blocks });
+      ...pendingTextInput,
+    }) + renderNavigationPendingTranslations({ document: this.document, blocks, ...pendingTextInput });
     for (const block of blocks) {
       const entity = this.entities.get(block.id);
       if (!entity) continue;

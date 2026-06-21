@@ -1,5 +1,6 @@
 export interface RichTextPlaceholder {
   token: string;
+  closeToken?: string;
   tagName: string;
   text: string;
   attributes: Record<string, string>;
@@ -26,6 +27,7 @@ const ALLOWED_INLINE_TAGS = new Set([
   "rt",
   "span",
 ]);
+const TRANSLATABLE_INLINE_TAGS = new Set(["a", "em", "strong", "b", "i", "mark", "ruby", "rt", "span"]);
 
 function normalizeInlineText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -64,13 +66,16 @@ export function buildRichTextPayload(element: HTMLElement): RichTextPayload | un
       const text = normalizeInlineText(node.textContent ?? "");
       if (text) {
         const token = `__BRX_INLINE_${placeholders.length}__`;
+        const tagName = node.tagName.toLowerCase();
+        const closeToken = TRANSLATABLE_INLINE_TAGS.has(tagName) ? `__BRX_INLINE_${placeholders.length}_END__` : undefined;
         placeholders.push({
           token,
-          tagName: node.tagName.toLowerCase(),
+          ...(closeToken ? { closeToken } : {}),
+          tagName,
           text,
           attributes: safeAttributes(node),
         });
-        source += token;
+        source += closeToken ? `${token}${text}${closeToken}` : token;
       }
       node = walker.nextSibling();
       continue;
@@ -84,11 +89,11 @@ export function buildRichTextPayload(element: HTMLElement): RichTextPayload | un
   return { source: normalizedSource, placeholders };
 }
 
-function appendTextWithLineBreaks(document: Document, fragment: DocumentFragment, text: string): void {
+function appendTextWithLineBreaks(document: Document, fragment: Node, text: string): void {
   const parts = text.split(/\n/);
   parts.forEach((part, index) => {
-    if (index > 0) fragment.append(document.createElement("br"));
-    if (part) fragment.append(document.createTextNode(part));
+    if (index > 0) fragment.appendChild(document.createElement("br"));
+    if (part) fragment.appendChild(document.createTextNode(part));
   });
 }
 
@@ -98,6 +103,17 @@ function createPlaceholderElement(document: Document, placeholder: RichTextPlace
   for (const [name, value] of Object.entries(placeholder.attributes)) {
     element.setAttribute(name, value);
   }
+  return element;
+}
+
+function createWrappedPlaceholderElement(
+  document: Document,
+  placeholder: RichTextPlaceholder,
+  translatedText: string,
+): HTMLElement {
+  const element = createPlaceholderElement(document, placeholder);
+  element.textContent = "";
+  appendTextWithLineBreaks(document, element, translatedText || placeholder.text);
   return element;
 }
 
@@ -118,8 +134,17 @@ export function restoreRichTextFragment(document: Document, text: string, payloa
     }
 
     if (next.index > 0) appendTextWithLineBreaks(document, fragment, rest.slice(0, next.index));
-    fragment.append(createPlaceholderElement(document, next.placeholder));
-    rest = rest.slice(next.index + next.placeholder.token.length);
+    const afterOpen = rest.slice(next.index + next.placeholder.token.length);
+    if (next.placeholder.closeToken) {
+      const closeIndex = afterOpen.indexOf(next.placeholder.closeToken);
+      if (closeIndex < 0) return undefined;
+      const innerText = afterOpen.slice(0, closeIndex);
+      fragment.append(createWrappedPlaceholderElement(document, next.placeholder, innerText));
+      rest = afterOpen.slice(closeIndex + next.placeholder.closeToken.length);
+    } else {
+      fragment.append(createPlaceholderElement(document, next.placeholder));
+      rest = afterOpen;
+    }
     placeholders.splice(placeholders.indexOf(next.placeholder), 1);
   }
 

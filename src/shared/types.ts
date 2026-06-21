@@ -90,6 +90,7 @@ export interface PageTextBlock {
     source: string;
     placeholders: Array<{
       token: string;
+      closeToken?: string;
       tagName: string;
       text: string;
       attributes: Record<string, string>;
@@ -108,6 +109,30 @@ export interface ContextPack {
   masked: boolean;
 }
 
+export interface ConsistencyPlan {
+  summary: string;
+  styleGuide: string;
+  termMap: Record<string, string>;
+  phraseMap: Record<string, string>;
+  doNotTranslate: string[];
+  planHash: string;
+}
+
+export interface LocalContextWindow {
+  before: PageTextBlock[];
+  after: PageTextBlock[];
+}
+
+export interface ConsistencyPlanRequest {
+  sourceLang: string;
+  targetLang: string;
+  blocks: PageTextBlock[];
+  contextPack: ContextPack;
+  expertProfile: ExpertProfile;
+  providerConfig: ProviderConfig;
+  providerId: string;
+}
+
 export interface TranslateBatchRequest {
   sourceLang: string;
   targetLang: string;
@@ -118,6 +143,8 @@ export interface TranslateBatchRequest {
   providerConfig: ProviderConfig;
   providerId: string;
   displayMode: DisplayMode;
+  consistencyPlan?: ConsistencyPlan;
+  localContext?: LocalContextWindow;
 }
 
 export interface TranslationItemResult {
@@ -156,6 +183,7 @@ export type RuntimeMessage =
   | { type: "BR_SAVE_SETTINGS"; settings: ExtensionSettings }
   | { type: "BR_LIST_PROVIDERS" }
   | { type: "BR_GRANT_PROVIDER_PERMISSION"; providerConfig: ProviderConfig }
+  | { type: "BR_BUILD_CONSISTENCY_PLAN"; request: ConsistencyPlanRequest }
   | { type: "BR_TRANSLATE_BATCH"; request: TranslateBatchRequest }
   | { type: "BR_CLEAR_CACHE" }
   | { type: "BR_CLEAR_PAGE_CACHE"; textHashes: string[] }

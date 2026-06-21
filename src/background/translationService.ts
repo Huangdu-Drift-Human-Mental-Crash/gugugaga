@@ -7,7 +7,7 @@ import { failedProviderResult } from "./providers/types";
 import { summarizeContextOpenAICompatible } from "./providers/openaiCompatible";
 import { summarizeContextAnthropicNative, summarizeContextGeminiNative } from "./providers/llmNative";
 
-function itemCacheKey(request: TranslateBatchRequest, textHash: string): string {
+export function translationCacheKey(request: TranslateBatchRequest, textHash: string): string {
   return cacheKey({
     textHash,
     targetLang: request.targetLang,
@@ -15,7 +15,7 @@ function itemCacheKey(request: TranslateBatchRequest, textHash: string): string 
     providerScope: stableHash(request.providerConfig.baseUrl || request.providerId),
     model: request.providerConfig.model,
     expertId: request.expertProfile.id,
-    contextVersion: stableHash(contextVersion(request.contextPack)),
+    contextVersion: request.consistencyPlan?.planHash ?? stableHash(contextVersion(request.contextPack)),
   });
 }
 
@@ -51,7 +51,7 @@ export async function translateBatchWithCache(request: TranslateBatchRequest): P
   const misses = [];
 
   for (const block of enhancedRequest.blocks) {
-    const key = itemCacheKey(enhancedRequest, block.hash);
+    const key = translationCacheKey(enhancedRequest, block.hash);
     const cached = await getCachedTranslation(key);
     if (cached) cachedItems.push(cachedResult(block.id, cached));
     else misses.push({ block, key });

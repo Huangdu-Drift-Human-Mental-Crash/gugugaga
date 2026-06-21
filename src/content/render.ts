@@ -3,7 +3,7 @@ import { restoreRichTextFragment } from "../shared/richText";
 import type { ContentBlock } from "./types";
 
 const STYLE_ID = "brx-style";
-const PENDING_TEXT = "正在翻译...";
+const DEFAULT_PENDING_TEXT = "正在翻译...";
 
 export function injectContentStyles(document: Document): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -247,6 +247,7 @@ export function renderPendingTranslations(input: {
   document: Document;
   blocks: ContentBlock[];
   displayMode: DisplayMode;
+  pendingText?: string;
 }): number {
   let rendered = 0;
   for (const block of input.blocks) {
@@ -254,7 +255,7 @@ export function renderPendingTranslations(input: {
     const { node: translation, isNew } = getOrCreateTranslationNode(input.document, block);
     translation.className = translationClassName(block, true);
     translation.dataset.brxFor = block.id;
-    translation.textContent = PENDING_TEXT;
+    translation.textContent = input.pendingText ?? DEFAULT_PENDING_TEXT;
     translation.setAttribute("aria-busy", "true");
     translation.setAttribute("translate", "no");
     applyTextPresentation(block.element, translation);
@@ -310,6 +311,7 @@ export function renderTranslations(input: {
 export function renderNavigationPendingTranslations(input: {
   document: Document;
   blocks: ContentBlock[];
+  pendingText?: string;
 }): number {
   let rendered = 0;
   for (const block of input.blocks) {
@@ -321,7 +323,7 @@ export function renderNavigationPendingTranslations(input: {
     }
     node.className = "brx-nav-translation brx-nav-translation-pending";
     node.dataset.brxFor = block.id;
-    node.textContent = PENDING_TEXT;
+    node.textContent = input.pendingText ?? DEFAULT_PENDING_TEXT;
     node.setAttribute("aria-busy", "true");
     node.setAttribute("translate", "no");
     block.element.dataset.brxState = "pending";

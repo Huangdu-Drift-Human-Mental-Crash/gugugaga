@@ -1,21 +1,27 @@
 import { providerDescriptors } from "../shared/defaults";
 import { buildContextPack } from "../shared/context";
 import { sendRuntimeMessage } from "../shared/messaging";
+import { maskSensitiveText } from "../shared/sanitize";
 import type {
+  ConsistencyPlan,
+  ConsistencyPlanRequest,
   ExtensionSettings,
   PageRuntimeStatus,
+  PageTextBlock,
   RuntimeMessage,
   SiteRule,
   TranslateBatchRequest,
   TranslateBatchResult,
   ClearPageDataResult,
 } from "../shared/types";
+import { chunkBlocksForConsistency, localContextForBatch } from "./batching";
 import { PageEngine } from "./pageEngine";
 import { showStatus } from "./render";
 import { SubtitleEngine } from "./subtitles/engine";
 import type { ExtractOptions } from "./types";
 
 const BATCH_SIZE = 12;
+const CONSISTENCY_BATCH_CONCURRENCY = 2;
 
 class PageTranslator {
   private status: PageRuntimeStatus = {
@@ -30,6 +36,7 @@ class PageTranslator {
   private currentRun: Promise<void> | undefined;
   private initialized = false;
   private postTranslateTimers: number[] = [];
+  private activeConsistencyPlan: ConsistencyPlan | undefined;
   private readonly engine: PageEngine;
   private readonly subtitleEngine: SubtitleEngine;
 
@@ -162,7 +169,6 @@ class PageTranslator {
     };
     showStatus(this.document, `Translating ${blocks.length} blocks with ${settings.providerId}...`);
     this.engine.markQueued(blocks);
-    this.engine.renderPending(blocks, settings.displayMode);
 
     const contextBlocks = settings.context.enabled ? blocks : [];
     const contextPack = buildContextPack({
@@ -173,28 +179,55 @@ class PageTranslator {
       maxChars: settings.context.maxChars,
       maskSensitive: settings.context.maskSensitiveText,
     });
+    const planMode = this.shouldUseConsistencyPlan(settings, blocks.length);
+    let consistencyPlan = planMode && onlyNew ? this.activeConsistencyPlan : undefined;
+
+    if (planMode && !consistencyPlan) {
+      this.engine.renderPending(blocks, settings.displayMode, "Analyzing context...");
+      const planRequest: ConsistencyPlanRequest = {
+        sourceLang: settings.sourceLang,
+        targetLang: settings.targetLang,
+        blocks: this.blocksForConsistencyPlan(blocks, settings.context.maskSensitiveText),
+        contextPack,
+        expertProfile,
+        providerConfig,
+        providerId: settings.providerId,
+      };
+      try {
+        consistencyPlan = await sendRuntimeMessage<ConsistencyPlan>({
+          type: "BR_BUILD_CONSISTENCY_PLAN",
+          request: planRequest,
+        });
+        this.activeConsistencyPlan = consistencyPlan;
+        this.engine.renderPending(blocks, settings.displayMode, "Translating...");
+      } catch (error) {
+        this.activeConsistencyPlan = undefined;
+        this.engine.clearPending(blocks);
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Smart Context analysis failed: ${message}. Retry or turn off Smart Context.`);
+      }
+    } else {
+      this.engine.renderPending(blocks, settings.displayMode);
+    }
 
     try {
-      for (let index = 0; index < blocks.length && !this.stopped; index += BATCH_SIZE) {
-        const batch = blocks.slice(index, index + BATCH_SIZE);
-        const request: TranslateBatchRequest = {
-          sourceLang: settings.sourceLang,
-          targetLang: settings.targetLang,
-          blocks: batch.map(({ element: _element, ...block }) => block),
+      if (planMode && consistencyPlan) {
+        await this.translateWithConsistencyPlan({
+          blocks,
+          settings,
           contextPack,
-          contextPreflight: settings.context.enabled && settings.context.preflight,
           expertProfile,
           providerConfig,
-          providerId: settings.providerId,
-          displayMode: settings.displayMode,
-        };
-        const result = await sendRuntimeMessage<TranslateBatchResult>({ type: "BR_TRANSLATE_BATCH", request });
-        if (this.stopped) break;
-        const rendered = this.engine.renderResults(batch, result.items, settings.displayMode);
-        this.status.translatedBlocks += rendered;
-        this.status.queuedBlocks = Math.max(0, this.status.queuedBlocks - batch.length);
-        const firstError = result.items.find((item) => item.error)?.error;
-        if (firstError) this.status.error = firstError;
+          consistencyPlan,
+        });
+      } else {
+        await this.translateLegacyBatches({
+          blocks,
+          settings,
+          contextPack,
+          expertProfile,
+          providerConfig,
+        });
       }
     } catch (error) {
       this.status.error = error instanceof Error ? error.message : String(error);
@@ -243,6 +276,7 @@ class PageTranslator {
   restore(): void {
     this.stopped = true;
     this.clearPostTranslateRescans();
+    this.activeConsistencyPlan = undefined;
     this.subtitleEngine.restore();
     this.engine.restore();
     this.status = {
@@ -264,6 +298,7 @@ class PageTranslator {
       type: "BR_CLEAR_PAGE_CACHE",
       textHashes,
     });
+    this.activeConsistencyPlan = undefined;
     this.restore();
     showStatus(this.document, `Cleared ${response.removedCacheEntries} cached translations for this page.`);
     return {
@@ -331,6 +366,116 @@ class PageTranslator {
       translateNavigation: rules.every((rule) => rule.translateNavigation !== false),
       minTextLength: rules.find((rule) => typeof rule.minTextLength === "number")?.minTextLength ?? 2,
     };
+  }
+
+  private shouldUseConsistencyPlan(settings: ExtensionSettings, blockCount: number): boolean {
+    if (!settings.context.enabled || blockCount <= 0) return false;
+    const descriptor = providerDescriptors.find((provider) => provider.id === settings.providerId);
+    return Boolean(
+      descriptor?.kind === "ai" &&
+        (settings.providerId === "openai-compatible" ||
+          settings.providerId === "gemini-native" ||
+          settings.providerId === "anthropic-native"),
+    );
+  }
+
+  private stripElements(blocks: Array<PageTextBlock & { element?: HTMLElement }>): PageTextBlock[] {
+    return blocks.map(({ element: _element, ...block }) => block);
+  }
+
+  private blocksForConsistencyPlan(
+    blocks: Array<PageTextBlock & { element?: HTMLElement }>,
+    maskSensitive: boolean,
+  ): PageTextBlock[] {
+    return this.stripElements(blocks).map(({ richText: _richText, ...block }) => ({
+      ...block,
+      text: maskSensitive ? maskSensitiveText(block.text).text : block.text,
+    }));
+  }
+
+  private baseRequest(input: {
+    blocks: PageTextBlock[];
+    settings: ExtensionSettings;
+    contextPack: TranslateBatchRequest["contextPack"];
+    expertProfile: TranslateBatchRequest["expertProfile"];
+    providerConfig: TranslateBatchRequest["providerConfig"];
+  }): TranslateBatchRequest {
+    return {
+      sourceLang: input.settings.sourceLang,
+      targetLang: input.settings.targetLang,
+      blocks: input.blocks,
+      contextPack: input.contextPack,
+      contextPreflight: input.settings.context.enabled && input.settings.context.preflight,
+      expertProfile: input.expertProfile,
+      providerConfig: input.providerConfig,
+      providerId: input.settings.providerId,
+      displayMode: input.settings.displayMode,
+    };
+  }
+
+  private applyBatchResult(
+    blocks: Parameters<PageEngine["renderResults"]>[0],
+    result: TranslateBatchResult,
+    displayMode: ExtensionSettings["displayMode"],
+  ): void {
+    const rendered = this.engine.renderResults(blocks, result.items, displayMode);
+    this.status.translatedBlocks += rendered;
+    this.status.queuedBlocks = Math.max(0, this.status.queuedBlocks - blocks.length);
+    const firstError = result.items.find((item) => item.error)?.error;
+    if (firstError) this.status.error = firstError;
+  }
+
+  private async translateLegacyBatches(input: {
+    blocks: ReturnType<PageEngine["scanBlocks"]>;
+    settings: ExtensionSettings;
+    contextPack: TranslateBatchRequest["contextPack"];
+    expertProfile: TranslateBatchRequest["expertProfile"];
+    providerConfig: TranslateBatchRequest["providerConfig"];
+  }): Promise<void> {
+    for (let index = 0; index < input.blocks.length && !this.stopped; index += BATCH_SIZE) {
+      const batch = input.blocks.slice(index, index + BATCH_SIZE);
+      const request = this.baseRequest({
+        ...input,
+        blocks: this.stripElements(batch),
+      });
+      const result = await sendRuntimeMessage<TranslateBatchResult>({ type: "BR_TRANSLATE_BATCH", request });
+      if (this.stopped) break;
+      this.applyBatchResult(batch, result, input.settings.displayMode);
+    }
+  }
+
+  private async translateWithConsistencyPlan(input: {
+    blocks: ReturnType<PageEngine["scanBlocks"]>;
+    settings: ExtensionSettings;
+    contextPack: TranslateBatchRequest["contextPack"];
+    expertProfile: TranslateBatchRequest["expertProfile"];
+    providerConfig: TranslateBatchRequest["providerConfig"];
+    consistencyPlan: ConsistencyPlan;
+  }): Promise<void> {
+    const allTextBlocks = this.stripElements(input.blocks);
+    const batches = chunkBlocksForConsistency(input.blocks);
+    let nextIndex = 0;
+
+    const runNext = async (): Promise<void> => {
+      if (this.stopped || this.status.error) return;
+      const batch = batches[nextIndex];
+      nextIndex += 1;
+      if (!batch) return;
+      const request: TranslateBatchRequest = {
+        ...this.baseRequest({
+          ...input,
+          blocks: this.stripElements(batch),
+        }),
+        contextPreflight: false,
+        consistencyPlan: input.consistencyPlan,
+        localContext: localContextForBatch(allTextBlocks, this.stripElements(batch)),
+      };
+      const result = await sendRuntimeMessage<TranslateBatchResult>({ type: "BR_TRANSLATE_BATCH", request });
+      if (!this.stopped) this.applyBatchResult(batch, result, input.settings.displayMode);
+      await runNext();
+    };
+
+    await Promise.all(Array.from({ length: Math.min(CONSISTENCY_BATCH_CONCURRENCY, batches.length) }, () => runNext()));
   }
 }
 

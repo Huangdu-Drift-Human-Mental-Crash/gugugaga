@@ -1,4 +1,4 @@
-import type { ContextPack, ExpertProfile, PageTextBlock } from "./types";
+import type { ConsistencyPlan, ContextPack, ExpertProfile, LocalContextWindow, PageTextBlock } from "./types";
 
 export function buildTranslationPrompt(input: {
   sourceLang: string;
@@ -6,11 +6,37 @@ export function buildTranslationPrompt(input: {
   blocks: PageTextBlock[];
   contextPack: ContextPack;
   expertProfile: ExpertProfile;
+  consistencyPlan?: ConsistencyPlan | undefined;
+  localContext?: LocalContextWindow | undefined;
 }): { system: string; user: string } {
-  const { sourceLang, targetLang, blocks, contextPack, expertProfile } = input;
+  const { sourceLang, targetLang, blocks, contextPack, expertProfile, consistencyPlan, localContext } = input;
   const terms = Object.entries(contextPack.terms)
     .map(([source, target]) => `- ${source}: ${target}`)
     .join("\n");
+  const planTermMap = consistencyPlan
+    ? Object.entries(consistencyPlan.termMap)
+        .map(([source, target]) => `- ${source}: ${target}`)
+        .join("\n")
+    : "";
+  const planPhraseMap = consistencyPlan
+    ? Object.entries(consistencyPlan.phraseMap)
+        .map(([source, target]) => `- ${source}: ${target}`)
+        .join("\n")
+    : "";
+  const planSection = consistencyPlan
+    ? [
+        consistencyPlan.summary ? `Document summary:\n${consistencyPlan.summary}` : "",
+        consistencyPlan.styleGuide ? `Style guide:\n${consistencyPlan.styleGuide}` : "",
+        planTermMap ? `Mandatory term map:\n${planTermMap}` : "",
+        planPhraseMap ? `Mandatory phrase map:\n${planPhraseMap}` : "",
+        consistencyPlan.doNotTranslate.length
+          ? `Do not translate these exact strings:\n${consistencyPlan.doNotTranslate.map((item) => `- ${item}`).join("\n")}`
+          : "",
+        "You must follow the term map, phrase map, and do-not-translate list consistently. If a mapped phrase appears, use the mapped translation exactly.",
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+    : "";
   const contextSection = [
     `Page title: ${contextPack.title || "(unknown)"}`,
     `Site: ${contextPack.site || "(unknown)"}`,
@@ -28,20 +54,32 @@ export function buildTranslationPrompt(input: {
     expertProfile.stylePrompt,
     expertProfile.glossary ? `User glossary:\n${expertProfile.glossary}` : "",
     contextSection ? `Context awareness:\n${contextSection}` : "",
+    planSection ? `Document consistency plan:\n${planSection}` : "",
     "Return only valid JSON. Preserve every input id exactly. Do not add commentary.",
     blocks.some((block) => block.richText)
-      ? "Some text contains placeholders like __BRX_INLINE_0__. Keep every placeholder exactly as-is in the translated text. Do not translate, delete, duplicate, or reorder placeholders."
+      ? "Some text contains placeholders like __BRX_INLINE_0__ and __BRX_INLINE_0_END__. Keep every placeholder token exactly as-is. You may translate text between matching open/end tokens, but do not delete, duplicate, or reorder the tokens."
       : "",
   ]
     .filter(Boolean)
     .join("\n\n");
 
   const payload = blocks.map((block) => ({ id: block.id, text: block.richText?.source ?? block.text }));
+  const localContextPayload = localContext
+    ? {
+        before: localContext.before.map((block) => ({ id: block.id, text: block.text })),
+        after: localContext.after.map((block) => ({ id: block.id, text: block.text })),
+      }
+    : undefined;
   const user = [
     `Translate from ${sourceLang || "auto"} to ${targetLang}.`,
     "Return a JSON array of objects with shape {\"id\":\"...\",\"text\":\"...\"}.",
+    localContextPayload
+      ? `Local context for reference only. Do not translate or output these context blocks:\n${JSON.stringify(localContextPayload)}`
+      : "",
     JSON.stringify(payload),
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   return { system, user };
 }
 
