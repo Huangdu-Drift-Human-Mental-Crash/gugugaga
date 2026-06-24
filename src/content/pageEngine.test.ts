@@ -89,6 +89,21 @@ describe("PageEngine", () => {
     expect(firstParagraph.dataset.brxSkipReason).toBe("already-target-language");
   });
 
+  it("skips the whole page when it already matches the target language", () => {
+    document.body.innerHTML = `
+      <main>
+        <p>这是第一段中文正文。</p>
+        <p>这是第二段中文正文。</p>
+      </main>
+    `;
+    const engine = new PageEngine(document);
+    const blocks = engine.scanBlocks({}, { targetLang: "zh-CN" });
+
+    expect(blocks).toEqual([]);
+    expect(engine.getLastScanSkipReason()).toBe("page-already-target-language");
+    expect((document.querySelector("p") as HTMLElement).dataset.brxState).toBe("skipped");
+  });
+
   it("restores translation nodes and engine DOM markers", () => {
     document.body.innerHTML = `
       <main>

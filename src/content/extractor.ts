@@ -3,8 +3,9 @@ import { buildRichTextPayload } from "../shared/richText";
 import type { ContentBlock, ExtractOptions } from "./types";
 
 const BLOCK_CANDIDATE_SELECTOR = "h1,h2,h3,h4,h5,h6,p,li,blockquote,td,th,caption";
-const TEXT_CONTAINER_SELECTOR = "div,span,a";
+const TEXT_CONTAINER_SELECTOR = "div,span,a,strong,b,em,i";
 const DEFAULT_CANDIDATE_SELECTOR = `${BLOCK_CANDIDATE_SELECTOR},${TEXT_CONTAINER_SELECTOR}`;
+const TEXT_FRAGMENT_CLASS = "brx-text-fragment";
 const NAVIGATION_ROOT_SELECTOR = [
   "aside",
   "#toc",
@@ -76,6 +77,8 @@ const CONTENT_ROOT_SELECTOR = [
   ".col_news_box",
   ".read",
   ".wp_articlecontent",
+  ".t_f",
+  "[id^='postmessage_']",
 ].join(",");
 const VISUALIZATION_SELECTOR = [
   "canvas",
@@ -146,6 +149,8 @@ const SKIP_SELECTOR = [
   ".entry-meta",
   ".post-meta",
   ".post-info",
+  ".pstatus",
+  "i.pstatus",
   ".byline",
   ".author",
   ".vcard",
@@ -160,6 +165,9 @@ const SKIP_SELECTOR = [
   ".brx-translation",
   ".brx-nav-translation",
   ".brx-status",
+  `.brx-text-fragment[data-brx-state='queued']`,
+  `.brx-text-fragment[data-brx-state='translated']`,
+  `.brx-text-fragment[data-brx-state='pending']`,
   "[data-brx-state='queued']",
   "[data-brx-state='translated']",
   "[data-brx-state='pending']",
@@ -243,6 +251,26 @@ function elementText(element: HTMLElement): string {
     return normalizeText(clone.innerText || clone.textContent || "");
   }
   return normalizeText(element.innerText || element.textContent || "");
+}
+
+function forumTextFragmentElements(element: HTMLElement): HTMLElement[] {
+  const fragments: HTMLElement[] = [];
+  for (const node of Array.from(element.childNodes)) {
+    if (node instanceof HTMLElement && node.classList.contains(TEXT_FRAGMENT_CLASS)) {
+      fragments.push(node);
+      continue;
+    }
+    if (node.nodeType !== Node.TEXT_NODE) continue;
+    const text = normalizeText(node.textContent ?? "");
+    if (!text || !isMeaningfulText(text) || isUrlOnlyText(text)) continue;
+    const span = element.ownerDocument.createElement("span");
+    span.className = TEXT_FRAGMENT_CLASS;
+    span.dataset.brxTextFragment = "1";
+    span.textContent = node.textContent ?? "";
+    node.replaceWith(span);
+    fragments.push(span);
+  }
+  return fragments;
 }
 
 function isMeaningfulText(text: string): boolean {
@@ -382,14 +410,19 @@ function getRoots(document: Document, options: ExtractOptions): HTMLElement[] {
 }
 
 function hasBlockChildren(element: HTMLElement, options: ExtractOptions): boolean {
+  if (isForumPostMessageElement(element)) return false;
   const extraBlock = selectorList(options.extraBlockSelectors);
   const blockSelector = extraBlock ? `${BLOCK_CANDIDATE_SELECTOR},${extraBlock}` : BLOCK_CANDIDATE_SELECTOR;
   return Boolean(element.querySelector(blockSelector));
 }
 
+function isForumPostMessageElement(element: HTMLElement): boolean {
+  return element.matches(".t_f,[id^='postmessage_']");
+}
+
 function isTextContainerCandidate(element: HTMLElement, options: ExtractOptions): boolean {
   const tag = element.tagName.toLowerCase();
-  if (tag !== "div" && tag !== "span" && tag !== "a") return false;
+  if (!["div", "span", "a", "strong", "b", "em", "i"].includes(tag)) return false;
   const text = elementText(element);
   if (text.length < options.minTextLength) return false;
   if (!isMeaningfulText(text)) return false;
@@ -466,6 +499,7 @@ function sideRailCandidates(document: Document, options: ExtractOptions): HTMLEl
 }
 
 function isCandidateElement(element: HTMLElement, options: ExtractOptions): boolean {
+  if (isForumPostMessageElement(element)) return true;
   const extraBlock = selectorList(options.extraBlockSelectors);
   const extraInline = selectorList(options.extraInlineSelectors);
   if ((extraBlock && element.matches(extraBlock)) || element.matches(BLOCK_CANDIDATE_SELECTOR)) {
@@ -541,7 +575,7 @@ export function extractPageBlocks(document: Document, options: Partial<ExtractOp
     .filter((element, _index, all) => {
       let parent = element.parentElement;
       while (parent) {
-        if (all.includes(parent)) return false;
+        if (all.includes(parent) && !isForumPostMessageElement(parent)) return false;
         parent = parent.parentElement;
       }
       return true;
@@ -549,32 +583,42 @@ export function extractPageBlocks(document: Document, options: Partial<ExtractOp
   const seen = new Set<string>();
   const blocks: ContentBlock[] = [];
 
-  for (const element of candidates) {
-    const classification = elementClassification(element, merged);
-    if (classification === "ignored" || classification === "atomic" || classification === "stay-original") {
-      continue;
-    }
-    const text = elementText(element);
-    if (text.length < merged.minTextLength) continue;
-    if (isUrlOnlyText(text)) continue;
-    if (!isMeaningfulText(text)) continue;
+  const pushBlock = (element: HTMLElement, text: string, kind = elementKind(element)) => {
+    if (text.length < merged.minTextLength) return;
+    if (isUrlOnlyText(text)) return;
+    if (!isMeaningfulText(text)) return;
     const hash = blockHash(text);
-    const duplicateKey = `${hash}:${elementKind(element)}`;
-    if (seen.has(duplicateKey)) continue;
+    const duplicateKey = `${hash}:${kind}`;
+    if (seen.has(duplicateKey)) return;
     seen.add(duplicateKey);
     const block: ContentBlock = {
       id: `brx-${hash}-${blocks.length}`,
       hash,
       text,
-      kind: elementKind(element),
+      kind,
       visibility: isElementVisible(element) ? "visible" : "hidden",
       layout: elementLayout(element, merged),
-      classification,
+      classification: elementClassification(element, merged),
       element,
     };
     const richText = buildRichTextPayload(element);
-    if (richText) block.richText = richText;
+    if (richText && normalizeText(element.textContent || "") === text) block.richText = richText;
     blocks.push(block);
+  };
+
+  for (const element of candidates) {
+    const classification = elementClassification(element, merged);
+    if (classification === "ignored" || classification === "atomic" || classification === "stay-original") {
+      continue;
+    }
+    if (isForumPostMessageElement(element)) {
+      const fragments = forumTextFragmentElements(element);
+      if (fragments.length) {
+        for (const fragment of fragments) pushBlock(fragment, elementText(fragment), "paragraph");
+        continue;
+      }
+    }
+    pushBlock(element, elementText(element));
   }
 
   return blocks;

@@ -1,6 +1,6 @@
 import type { DisplayMode, TranslationItemResult } from "../shared/types";
 import { collectHeadings, extractNavigationBlocks, extractPageBlocks } from "./extractor";
-import { isProbablyAlreadyTargetLanguage } from "./language";
+import { isDominantTargetLanguage, isProbablyAlreadyTargetLanguage } from "./language";
 import {
   clearPendingTranslations,
   injectContentStyles,
@@ -36,6 +36,7 @@ export interface PageEngineSnapshot {
 }
 
 const MUTATION_DEBOUNCE_MS = 1200;
+const PAGE_ALREADY_TARGET_REASON = "page-already-target-language";
 
 function now(): number {
   return Date.now();
@@ -78,6 +79,7 @@ export class PageEngine {
   private mutationObserver: MutationObserver | undefined;
   private mutationTimer: number | undefined;
   private initialized = false;
+  private lastScanSkipReason = "";
 
   constructor(private readonly document: Document) {}
 
@@ -93,11 +95,18 @@ export class PageEngine {
     scanOptions: { onlyNew?: boolean; targetLang?: string } = {},
   ): ContentBlock[] {
     this.init();
+    this.lastScanSkipReason = "";
     const blocks = [
       ...extractPageBlocks(this.document, options),
       ...extractNavigationBlocks(this.document, options),
     ].filter((block) => block.visibility === "visible");
     const selected: ContentBlock[] = [];
+
+    if (!scanOptions.onlyNew && scanOptions.targetLang && isDominantTargetLanguage(blocks.map((block) => block.text), scanOptions.targetLang)) {
+      this.lastScanSkipReason = PAGE_ALREADY_TARGET_REASON;
+      for (const block of blocks) this.markSkipped(block, PAGE_ALREADY_TARGET_REASON);
+      return [];
+    }
 
     for (const block of blocks) {
       if (scanOptions.targetLang && isProbablyAlreadyTargetLanguage(block.text, scanOptions.targetLang)) {
@@ -133,6 +142,10 @@ export class PageEngine {
 
   collectHeadings(): string[] {
     return collectHeadings(this.document);
+  }
+
+  getLastScanSkipReason(): string {
+    return this.lastScanSkipReason;
   }
 
   markQueued(blocks: ContentBlock[]): void {

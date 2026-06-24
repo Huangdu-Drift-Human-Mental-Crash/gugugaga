@@ -285,6 +285,39 @@ describe("extractPageBlocks", () => {
     ]);
   });
 
+  it("extracts direct text fragments from Discuz/Flyert post bodies", () => {
+    document.body.innerHTML = `
+      <div id="ct">
+        <table class="plhin">
+          <tr>
+            <td class="t_f" id="postmessage_1">
+              <i class="pstatus">Edited by someone</i>
+              <div class="nl2p"></div>
+              Please be advised that Asiana Airlines will officially depart from Star Alliance.
+              <div class="nl2p"></div>
+              Consequently, mileage accrual and Elite benefits for Asiana Club members will end.
+              <div class="nl2p"></div>
+              <strong>1. End of Mileage Accrual</strong>
+              <div class="nl2p"></div>
+              <table><tr><td>Flight Date</td><td>Accrual Method</td></tr></table>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    const blocks = extractPageBlocks(document);
+
+    expect(blocks.map((block) => block.text)).toEqual([
+      "Please be advised that Asiana Airlines will officially depart from Star Alliance.",
+      "Consequently, mileage accrual and Elite benefits for Asiana Club members will end.",
+      "1. End of Mileage Accrual",
+      "Flight Date",
+      "Accrual Method",
+    ]);
+    expect(document.querySelectorAll(".brx-text-fragment")).toHaveLength(2);
+  });
+
   it("skips chart internals while keeping article body links", () => {
     document.body.innerHTML = `
       <main class="article-page">

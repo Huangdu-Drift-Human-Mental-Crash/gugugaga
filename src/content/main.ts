@@ -147,6 +147,7 @@ class PageTranslator {
     );
     if (this.stopped) return;
     if (!blocks.length) {
+      const skipReason = this.engine.getLastScanSkipReason();
       this.status = {
         status: onlyNew ? "translated" : "idle",
         translatedBlocks: onlyNew ? this.status.translatedBlocks : 0,
@@ -156,7 +157,7 @@ class PageTranslator {
       };
       this.engine.setPageStatus(onlyNew ? "translated" : "original");
       if (onlyNew) this.observeMutations();
-      else showStatus(this.document, "No translatable text found.");
+      else showStatus(this.document, skipReason === "page-already-target-language" ? "Page already matches target language." : "No translatable text found.");
       return;
     }
 

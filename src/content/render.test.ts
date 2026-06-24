@@ -175,4 +175,13 @@ describe("translation rendering", () => {
     expect(anchor.querySelector(".brx-nav-translation")).toBeNull();
     expect(anchor.dataset.brxState).toBeUndefined();
   });
+
+  it("unwraps generated text fragments on restore", () => {
+    document.body.innerHTML = `<div><span data-brx-text-fragment="1">Loose forum text.</span></div>`;
+
+    restoreTranslations(document);
+
+    expect(document.querySelector("[data-brx-text-fragment]")).toBeNull();
+    expect(document.body.textContent).toBe("Loose forum text.");
+  });
 });

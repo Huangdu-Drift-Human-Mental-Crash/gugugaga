@@ -399,4 +399,7 @@ export function restoreTranslations(document: Document): void {
       delete node.dataset.brxSkipReason;
     }
   });
+  document.querySelectorAll("[data-brx-text-fragment='1']").forEach((node) => {
+    if (node instanceof HTMLElement) node.replaceWith(document.createTextNode(node.textContent ?? ""));
+  });
 }
